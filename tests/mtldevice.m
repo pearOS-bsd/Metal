@@ -5,6 +5,7 @@
 #include <unistd.h>
 int main(void)
 {
+	setvbuf(stdout, NULL, _IONBF, 0);
 	@autoreleasepool {
 		NSArray<id<MTLDevice>> *all = MTLCopyAllDevices();
 		printf("mtldevice: MTLCopyAllDevices: %lu device(s)\n", (unsigned long)all.count);

@@ -17,10 +17,28 @@ static void trace(const char *what, SEL sel) { char b[240]; snprintf(b, sizeof b
 @interface MTLIOAccelDevice : NSObject
 @end
 
+@interface PearMTLCommandQueue : NSObject <MTLCommandQueue>
+{ id<MTLDevice> _device; NSString *_label; }
+- (instancetype)initWithDevice:(id<MTLDevice>)d;
+@end
+
 @interface PearMTLDevice : MTLIOAccelDevice <MTLDevice>
 @end
 
+@implementation PearMTLCommandQueue
+- (instancetype)initWithDevice:(id<MTLDevice>)d { self = [super init]; _device = d; return self; }
+- (id<MTLDevice>)device { return _device; }
+- (NSString *)label { return _label; }
+- (void)setLabel:(NSString *)l { [_label release]; _label = [l copy]; }
+- (id<MTLCommandBuffer>)commandBuffer { trace("queue commandBuffer", NULL); return nil; }
+- (id<MTLCommandBuffer>)commandBufferWithDescriptor:(MTLCommandBufferDescriptor *)d { trace("queue commandBufferWithDescriptor", NULL); return nil; }
+- (id<MTLCommandBuffer>)commandBufferWithUnretainedReferences { trace("queue commandBufferWithUnretainedReferences", NULL); return nil; }
+- (void)insertDebugCaptureBoundary {}
+@end
+
 @implementation PearMTLDevice
+- (id<MTLCommandQueue>)newCommandQueue { trace("newCommandQueue", NULL); return [[PearMTLCommandQueue alloc] initWithDevice:self]; }
+- (id<MTLCommandQueue>)newCommandQueueWithMaxCommandBufferCount:(NSUInteger)n { trace("newCommandQueueWithMaxCommandBufferCount", NULL); return [[PearMTLCommandQueue alloc] initWithDevice:self]; }
 + (void)load
 {
 	/* the private protocols that MTLAddDevice asserts the device conforms to: added from Metal's own objects at run time (they are not in the SDK) */

@@ -39,3 +39,14 @@ What works now on pearOS (real dyld + cache, real Metal / AppKit, `darwinator` w
 3. What Metal asserts of a device (found one by one): the class must be a subclass of `MTLIOAccelDevice` (it sends `_setAcceleratorService:`), conform to `MTLDevice` and to the private `MTLDeviceSPI` (added at run time with `class_addProtocol` from Metal's own protocol object); its `dealloc` must not run Apple's base `dealloc` (it releases queues that never existed: crash), so the bundle is built without ARC. Then `-featureProfile` is asked (returns 10002 for now, the value a Mac with Intel Xe reports).
 4. `PEAR_METAL_LIST=1` makes the bundle print every method of `MTLDeviceSPI` (398) as the **work list** of the device; `MTLDevice` itself is the other list (the SDK header).
 5. Next: with these answers `MTLCopyAllDevices` in `tests/mtldevice.m` did not return yet (no crash, no more output within 60 s): find what it waits for (a thread dump of the process with `thr_kill2`, as in `SwiftUI/docs/EVIDENCE.md`), then fill the device queries (limits, `supportsFamily:`, `newCommandQueue`, `newBufferWithLength:options:` ...) from the work list, then the command stream and the Vulkan helper.
+
+## Milestone 2026-11-20 night: the real Metal API returns our device
+`tests/mtldevice.m` on pearOS (real dyld + cache, real `Metal.framework`, our `IOAccelerator` node in darwinator, `PearMetalDriver.bundle`):
+```
+mtldevice: MTLCopyAllDevices: 1 device(s)
+mtldevice:   Pear Software GPU (registryID 4294967552, lowPower 0, unified 1)
+mtldevice: MTLCreateSystemDefaultDevice: Pear Software GPU
+mtldevice: newCommandQueue: ok
+mtldevice: newBuffer: (nil)          <- next: newBufferWithLength:options: and the rest of the work list
+```
+The device made queues in an endless allocation loop (`-[_MTLDevice newCommandQueueWithMaxCommandBufferCount:]` of Apple's base class, 3 GB in seconds, the kernel killed the process) until the bundle implemented `newCommandQueue*` itself: whatever the base classes would do through an accelerator has to be implemented by the bundle. The driver prints every selector it does not implement (`instance selector asked and not implemented: ...`) and `PEAR_METAL_LIST=1` lists the 398 methods of `MTLDeviceSPI`.
