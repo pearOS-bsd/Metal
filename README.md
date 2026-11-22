@@ -53,3 +53,5 @@ The device made queues in an endless allocation loop (`-[_MTLDevice newCommandQu
 
 ## Decision of 2026-11-22: the shader translator and the Vulkan runtime come from a GPL fork
 `pearOS-bsd/metal2vulkan` (a fork of steelbrain/metal2vulkan, upstream GPL-2.0-or-later OR LGPL-3.0-or-later) is used as a **GPL-2.0-or-later derivative with open source**.  It is the only GPL code in pearOS and stays in its own repository; **this repository (BSD-2-Clause) does not contain it and does not link it**: `PearMetalDriver` talks to a helper process (the Vulkan helper of the plan above) over a socket, which runs `metal2vulkan-air` (AIR / `.metallib` reader), `metal2vulkan` (AIR to SPIR-V) and `metal2vulkan-runtime` (Vulkan device, queues, encoders).  See `metal2vulkan/PEAROS.md`.  This replaces step 3 of the plan (an AIR to SPIR-V translator of our own).
+
+**First result (2026-11-22):** `metal2vulkan` reads Apple's `RenderBox.framework/Resources/default.metallib` (24 functions) and compiles the vertex/fragment pair `accumulator_gradient_vertex` + `accumulator_coverage_fragment` to SPIR-V that `spirv-val` accepts, for the lavapipe profile (`SwiftUI/docs/EVIDENCE.md`, 50th pass).
