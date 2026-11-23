@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+extern void instrumentObjcMessageSends(BOOL);
 static void say(const char *s) { write(2, s, strlen(s)); }
 static void trace(const char *what, SEL sel) { char b[240]; snprintf(b, sizeof b, "PearMetalDriver: %s %s\n", what, sel ? sel_getName(sel) : ""); say(b); }
 
@@ -193,11 +194,11 @@ static size_t pear_bytes_per_pixel(MTLPixelFormat f)
 	}
 	say("PearMetalDriver: bundle loaded, class PearMTLDevice\n");
 }
-- (instancetype)initWithAcceleratorPort:(unsigned)port { _acc = port; char b[100]; snprintf(b, sizeof b, "PearMetalDriver: initWithAcceleratorPort: %u\n", port); say(b); return self; }
+- (instancetype)initWithAcceleratorPort:(unsigned)port { if (getenv("PEAR_METAL_MSGLOG")) instrumentObjcMessageSends(YES); _acc = port; char b[100]; snprintf(b, sizeof b, "PearMetalDriver: initWithAcceleratorPort: %u\n", port); say(b); return self; }
 - (void)dealloc { say("PearMetalDriver: dealloc (the base class dealloc is not run)\n"); }
 - (unsigned long)featureProfile { trace("device ", @selector(featureProfile)); return 10002; }
 - (NSString *)name { trace("device ", @selector(name)); return @"Pear Software GPU"; }
-- (uint64_t)registryID { trace("device ", @selector(registryID)); uint64_t rid = 0; if (_acc && IORegistryEntryGetRegistryEntryID(_acc, &rid) == 0 && rid) return rid; return 0x100000100ULL; }	/* the registry entry id of the accelerator service (what IORegistryEntryIDMatching finds again: RenderBox looks the device up by it) */
+- (uint64_t)registryID { trace("device ", @selector(registryID)); uint64_t rid = 0; if (getenv("PEAR_METAL_RID0")) return 0; if (_acc && IORegistryEntryGetRegistryEntryID(_acc, &rid) == 0 && rid) return rid; return 0x100000100ULL; }	/* the registry entry id of the accelerator service (what IORegistryEntryIDMatching finds again: RenderBox looks the device up by it) */
 - (BOOL)isLowPower { trace("device ", @selector(isLowPower)); return NO; }
 - (BOOL)isHeadless { trace("device ", @selector(isHeadless)); return YES; }
 - (BOOL)isRemovable { trace("device ", @selector(isRemovable)); return NO; }
