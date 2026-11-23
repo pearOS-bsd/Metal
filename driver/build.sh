@@ -3,4 +3,4 @@
 set -e
 H="$(cd "$(dirname "$0")" && pwd)"; O="${1:-$H/out}"; B="$O/PearMetalDriver.bundle/Contents"
 mkdir -p "$B/MacOS"; cp "$H/Info.plist" "$B/Info.plist"
-clang -arch x86_64 -bundle -framework Foundation -framework Metal -Wno-protocol -Wno-incomplete-implementation -undefined dynamic_lookup "$H/PearMetalDriver.m" -o "$B/MacOS/PearMetalDriver"
+clang -arch x86_64 -bundle -framework Foundation -framework Metal -framework IOKit -Wno-protocol -Wno-incomplete-implementation -undefined dynamic_lookup "$H/PearMetalDriver.m" -o "$B/MacOS/PearMetalDriver"

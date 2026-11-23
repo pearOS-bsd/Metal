@@ -4,6 +4,7 @@
  * Status: the class is instantiated by the real Metal; the device answers a first set of queries; everything else is traced (see `trace`) to learn what Metal asks next. */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#import <IOKit/IOKitLib.h>
 #import <objc/runtime.h>
 #include <unistd.h>
 #include <string.h>
@@ -23,6 +24,7 @@ static void trace(const char *what, SEL sel) { char b[240]; snprintf(b, sizeof b
 @end
 
 @interface PearMTLDevice : MTLIOAccelDevice <MTLDevice>
+{ unsigned _acc; }
 @end
 
 
@@ -191,16 +193,16 @@ static size_t pear_bytes_per_pixel(MTLPixelFormat f)
 	}
 	say("PearMetalDriver: bundle loaded, class PearMTLDevice\n");
 }
-- (instancetype)initWithAcceleratorPort:(unsigned)port { char b[100]; snprintf(b, sizeof b, "PearMetalDriver: initWithAcceleratorPort: %u\n", port); say(b); return self; }
+- (instancetype)initWithAcceleratorPort:(unsigned)port { _acc = port; char b[100]; snprintf(b, sizeof b, "PearMetalDriver: initWithAcceleratorPort: %u\n", port); say(b); return self; }
 - (void)dealloc { say("PearMetalDriver: dealloc (the base class dealloc is not run)\n"); }
-- (unsigned long)featureProfile { return 10002; }
-- (NSString *)name { return @"Pear Software GPU"; }
-- (uint64_t)registryID { return 0x100000100ULL; }
-- (BOOL)isLowPower { return NO; }
-- (BOOL)isHeadless { return YES; }
-- (BOOL)isRemovable { return NO; }
-- (BOOL)hasUnifiedMemory { return YES; }
-- (NSUInteger)registryIDHigh { return 1; }
+- (unsigned long)featureProfile { trace("device ", @selector(featureProfile)); return 10002; }
+- (NSString *)name { trace("device ", @selector(name)); return @"Pear Software GPU"; }
+- (uint64_t)registryID { trace("device ", @selector(registryID)); uint64_t rid = 0; if (_acc && IORegistryEntryGetRegistryEntryID(_acc, &rid) == 0 && rid) return rid; return 0x100000100ULL; }	/* the registry entry id of the accelerator service (what IORegistryEntryIDMatching finds again: RenderBox looks the device up by it) */
+- (BOOL)isLowPower { trace("device ", @selector(isLowPower)); return NO; }
+- (BOOL)isHeadless { trace("device ", @selector(isHeadless)); return YES; }
+- (BOOL)isRemovable { trace("device ", @selector(isRemovable)); return NO; }
+- (BOOL)hasUnifiedMemory { trace("device ", @selector(hasUnifiedMemory)); return YES; }
+- (NSUInteger)registryIDHigh { trace("device ", @selector(registryIDHigh)); return 1; }
 /* whatever else Metal sends that the base classes do not answer is named here (they crash on an accelerator that is not there: the next thing to implement) */
 + (BOOL)resolveInstanceMethod:(SEL)sel { trace("instance selector asked and not implemented:", sel); return [super resolveInstanceMethod:sel]; }
 - (void)forwardInvocation:(NSInvocation *)inv { trace("forwardInvocation:", inv.selector); }
