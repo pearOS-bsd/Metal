@@ -23,7 +23,7 @@ static void draw_frame(void)
 		if (!d) { if (frames % 30 == 0) printf("metallayer: frame %d: no drawable\n", frames); frames++; return; }
 		MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
 		rp.colorAttachments[0].texture = d.texture; rp.colorAttachments[0].loadAction = MTLLoadActionClear; rp.colorAttachments[0].storeAction = MTLStoreActionStore;
-		float aspect = (float)d.texture.width / (float)d.texture.height;
+		float aspect = (float)d.texture.width / (float)d.texture.height * (1.0f + 0.35f * sinf(frames * 0.05f));	/* animated: the picture breathes, so a screenshot shows whether the window follows the frames */
 		id<MTLCommandBuffer> cb = [queue commandBuffer];
 		id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
 		[enc setRenderPipelineState:pso]; [enc setFragmentBytes:&aspect length:4 atIndex:0];

@@ -498,7 +498,11 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 }
 - (void)waitUntilScheduled {}
 - (void)waitUntilCompleted { pthread_mutex_lock(&_mx); while (_status < MTLCommandBufferStatusCompleted) pthread_cond_wait(&_cv, &_mx); pthread_mutex_unlock(&_mx); }
-- (void)presentDrawable:(id<MTLDrawable>)d { trace("presentDrawable (not yet)", NULL); }
+/* the drawable is presented when the GPU is done with the command buffer: on the Mac the present is scheduled and the display waits for the GPU's
+ * writes through the drawable's fences; here nothing tells the window server when the helper's work ends, so the present waits for completion */
+- (void)presentDrawable:(id<MTLDrawable>)d { id<MTLDrawable> dr = [d retain]; [self addCompletedHandler:^(id<MTLCommandBuffer> b) { (void)b; [dr present]; [dr release]; }]; }
+- (void)presentDrawable:(id<MTLDrawable>)d atTime:(CFTimeInterval)t { id<MTLDrawable> dr = [d retain]; [self addCompletedHandler:^(id<MTLCommandBuffer> b) { (void)b; [dr presentAtTime:t]; [dr release]; }]; }
+- (void)presentDrawable:(id<MTLDrawable>)d afterMinimumDuration:(CFTimeInterval)t { id<MTLDrawable> dr = [d retain]; [self addCompletedHandler:^(id<MTLCommandBuffer> b) { (void)b; [dr presentAfterMinimumDuration:t]; [dr release]; }]; }
 - (void)pushDebugGroup:(NSString *)s {}
 - (void)popDebugGroup {}
 @end
