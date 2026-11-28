@@ -63,7 +63,8 @@ int main(int argc, char **argv)
 		pso = [dev newRenderPipelineStateWithDescriptor:pd error:&e];
 		printf("metallayer: device %s, pipeline %s\n", dev.name.UTF8String, pso ? "ok" : e.localizedDescription.UTF8String);
 		if (!pso) return 1;
-		NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(200, 200, 480, 360) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+		double wx = getenv("ML_X") ? atof(getenv("ML_X")) : 200, wy = getenv("ML_Y") ? atof(getenv("ML_Y")) : 200;	/* ML_X / ML_Y: where the window goes (under a glass panel, to see its refraction) */
+		NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(wx, wy, 480, 360) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
 		w.title = @"Metal on pearOS";
 		MLView *v = [[MLView alloc] initWithFrame:NSMakeRect(0, 0, 480, 360)]; v.wantsLayer = YES; w.contentView = v;
 		ml = (CAMetalLayer *)v.layer; ml.device = dev; ml.pixelFormat = MTLPixelFormatBGRA8Unorm; ml.framebufferOnly = NO;
