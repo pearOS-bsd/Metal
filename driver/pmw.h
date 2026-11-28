@@ -24,9 +24,10 @@ enum pmw_op {
 	PMW_TEXTURE_GET = 13,	/* u64 tex, pmw_region, u32 level, u32 slice, u64 bytesPerRow, u64 bytesPerImage -> the bytes */
 	PMW_TEXTURE_IOSURFACE = 14, /* pmw_texture_desc, pmw_iosurface_plane -> u64 handle: a texture over the memory of an IOSurface (the helper opens it through darwinator's /dev/iosurface) */
 	PMW_LIBRARY_NEW = 20,	/* the metallib (or AIR bitcode) bytes -> u64 handle, then the function names (NUL-separated) */
+	PMW_LIBRARY_FILE = 22,	/* a metallib path (NUL-terminated) the helper reads itself (a system library such as QuartzCore's, for a native client) -> as PMW_LIBRARY_NEW */
 	PMW_FUNCTION_NEW = 21,	/* u64 library, name (NUL-terminated) -> u64 handle, u32 function type (MTLFunctionType) */
 	PMW_COMPUTE_PSO_NEW = 30, /* u64 function -> u64 handle, u32 maxTotalThreadsPerThreadgroup, u32 threadExecutionWidth, u32 static threadgroup memory */
-	PMW_RENDER_PSO_NEW = 31,  /* pmw_render_desc -> u64 handle */
+	PMW_RENDER_PSO_NEW = 31,  /* pmw_render_desc [, u32 n, n x {u32 attribute, MTLVertexFormat, offset, buffer}, u32 m, m x {u32 buffer, stride, MTLVertexStepFunction, step rate}] -> u64 handle */
 	PMW_SAMPLER_NEW = 32,	/* pmw_sampler_desc -> u64 handle */
 	PMW_COMMIT = 40,	/* u64 queue id (the driver's), the command list (pmw_cmd records) -> u64 submission id */
 	PMW_WAIT = 41,		/* u64 submission id -> u32 MTLCommandBufferStatus, error text */

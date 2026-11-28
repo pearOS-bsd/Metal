@@ -636,7 +636,13 @@ static dispatch_queue_t pear_completion_queue(void)
 		MTLRenderPipelineColorAttachmentDescriptor *c = d.colorAttachments[i];
 		rd.color[i] = (pmw_blend){ (uint32_t)c.pixelFormat, c.blendingEnabled, (uint32_t)c.sourceRGBBlendFactor, (uint32_t)c.destinationRGBBlendFactor, (uint32_t)c.rgbBlendOperation, (uint32_t)c.sourceAlphaBlendFactor, (uint32_t)c.destinationAlphaBlendFactor, (uint32_t)c.alphaBlendOperation, (uint32_t)c.writeMask };
 	}
-	NSData *a = nil; if (pmw_send(PMW_RENDER_PSO_NEW, &rd, sizeof rd, &a, nil) != 0) { if (e) *e = pmw_error(@"render pipeline", a); return nil; }
+	NSMutableData *q = [NSMutableData dataWithBytes:&rd length:sizeof rd];
+	MTLVertexDescriptor *vd = d.vertexDescriptor;	/* the vertex descriptor (pmw.h: after pmw_render_desc): its attributes and layouts with a format / a stride */
+	NSMutableData *at = [NSMutableData data], *ly = [NSMutableData data]; uint32_t na = 0, nl = 0;
+	for (uint32_t i = 0; vd && i < 31; i++) { MTLVertexAttributeDescriptor *x = vd.attributes[i]; if (x.format == MTLVertexFormatInvalid) continue; uint32_t w[4] = { i, (uint32_t)x.format, (uint32_t)x.offset, (uint32_t)x.bufferIndex }; [at appendBytes:w length:16]; na++; }
+	for (uint32_t i = 0; vd && i < 31; i++) { MTLVertexBufferLayoutDescriptor *x = vd.layouts[i]; if (x.stride == 0) continue; uint32_t w[4] = { i, (uint32_t)x.stride, (uint32_t)x.stepFunction, (uint32_t)x.stepRate }; [ly appendBytes:w length:16]; nl++; }
+	if (na) { [q appendBytes:&na length:4]; [q appendData:at]; [q appendBytes:&nl length:4]; [q appendData:ly]; }
+	NSData *a = nil; if (pmw_send(PMW_RENDER_PSO_NEW, q.bytes, q.length, &a, nil) != 0) { if (e) *e = pmw_error(@"render pipeline", a); return nil; }
 	PearMTLRenderPipelineState *p = [[PearMTLRenderPipelineState alloc] init]; p->_device = self; p->_h = pmw_u64(a, 0); return p;
 }
 - (id<MTLRenderPipelineState>)newRenderPipelineStateWithDescriptor:(MTLRenderPipelineDescriptor *)d options:(MTLPipelineOption)o reflection:(MTLAutoreleasedRenderPipelineReflection *)r error:(NSError **)e { if (r) *r = nil; return [self newRenderPipelineStateWithDescriptor:d error:e]; }
