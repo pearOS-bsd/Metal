@@ -22,6 +22,7 @@ enum pmw_op {
 	PMW_TEXTURE_NEW = 11,	/* pmw_texture_desc, shm name (empty: the helper owns the memory) -> u64 handle */
 	PMW_TEXTURE_REPLACE = 12, /* u64 tex, pmw_region, u32 level, u32 slice, u64 bytesPerRow, u64 bytesPerImage, the bytes -> nothing */
 	PMW_TEXTURE_GET = 13,	/* u64 tex, pmw_region, u32 level, u32 slice, u64 bytesPerRow, u64 bytesPerImage -> the bytes */
+	PMW_TEXTURE_IOSURFACE = 14, /* pmw_texture_desc, pmw_iosurface_plane -> u64 handle: a texture over the memory of an IOSurface (the helper opens it through darwinator's /dev/iosurface) */
 	PMW_LIBRARY_NEW = 20,	/* the metallib (or AIR bitcode) bytes -> u64 handle, then the function names (NUL-separated) */
 	PMW_FUNCTION_NEW = 21,	/* u64 library, name (NUL-terminated) -> u64 handle, u32 function type (MTLFunctionType) */
 	PMW_COMPUTE_PSO_NEW = 30, /* u64 function -> u64 handle, u32 maxTotalThreadsPerThreadgroup, u32 threadExecutionWidth, u32 static threadgroup memory */
@@ -67,5 +68,7 @@ typedef struct { uint64_t vertex_fn, fragment_fn; uint32_t samples, depth_format
 typedef struct { uint32_t min, mag, mip, s, t, r, border, normalized, compare, max_aniso; float lod_min, lod_max; } pmw_sampler_desc;
 
 typedef struct { uint64_t x, y, z, w, h, d; } pmw_region;
+/* PMW_TEXTURE_IOSURFACE: the surface (IOSurfaceGetID), the plane, its offset from the surface's base and its bytesPerRow, whether the surface has planes */
+typedef struct { uint32_t surface, plane; uint64_t offset, bytes_per_row; uint32_t planar, pad; } pmw_iosurface_plane;
 typedef struct { uint32_t type, format, usage, storage; uint64_t width, height, depth, mipmaps, samples, arrayLength, options; } pmw_texture_desc;
 #endif

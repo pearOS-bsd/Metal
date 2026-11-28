@@ -21,6 +21,7 @@ Mac program -> Metal.framework (Apple) -> PearMetalDriver (MTLDevice, MTLBuffer,
 | COMPUTE_PSO_NEW | u64 function | u64 handle, max threads per threadgroup, execution width, static threadgroup memory |
 | COMMIT | u64 queue id, the command list | u64 submission id |
 | WAIT | u64 submission id | u32 MTLCommandBufferStatus, error text |
+| TEXTURE_IOSURFACE | pmw_texture_desc, pmw_iosurface_plane (surface id, plane, offset, bytesPerRow, planar) | u64 handle |
 | RELEASE | u64 handle | - |
 
 The command list of a commit is a sequence of records (`u16 code, u16 size, arguments`): encoder begin / end, set pipeline / buffer / bytes / threadgroup memory, dispatches, buffer copies and fills (render passes, textures and samplers are the next records).
@@ -28,5 +29,8 @@ The command list of a commit is a sequence of records (`u16 code, u16 size, argu
 ## Memory
 A buffer is POSIX shared memory: the driver `shm_open`s a fresh name, sizes it to whole pages, maps it (that mapping is `-contents`), sends the name, the helper maps the same object and adopts it with `new_buffer_with_bytes_no_copy` (Vulkan external host memory), then the driver unlinks the name.  CPU writes before a commit and GPU writes after a completed command buffer are therefore seen by both sides without a copy.  darwinator passes `shm_open` of a Mac program to FreeBSD's `shm_open2`, so both processes name the same object.
 
+## IOSurface
+`newTextureWithDescriptor:iosurface:plane:` (CAMetalLayer's drawables, CoreAnimation, CoreImage) sends the surface's id: the helper opens the surface's memory through darwinator's `/dev/iosurface` (`IOSURF_IOC_OPEN`, `src/iosurface_dev.h`: a descriptor of the POSIX shared memory object that backs every surface), maps it, adopts it as a no-copy buffer and makes the texture over the plane (`Buffer::new_texture_with_iosurface_plane`).  What the GPU draws is then in the surface's memory, where `IOSurfaceGetBaseAddress` of the program and the window server read it (`tests/surface.m`).
+
 ## Status
-2026-11-28: the compute path (buffers, libraries, functions, compute pipelines, compute and blit encoders, commit, completion handlers, waitUntilCompleted) in the driver and the helper; render passes, textures, samplers, IOSurface-backed textures (WindowServer, CoreAnimation, RenderBox) next.
+2026-11-28: compute and render work end to end (tests/compute, tests/render, tests/art); textures over IOSurfaces (tests/surface: the picture read back from the surface's memory).  Earlier the same day: the compute path (buffers, libraries, functions, compute pipelines, compute and blit encoders, commit, completion handlers, waitUntilCompleted) in the driver and the helper; render passes, textures, samplers, IOSurface-backed textures (WindowServer, CoreAnimation, RenderBox) next.

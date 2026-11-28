@@ -4,6 +4,7 @@
  * Status: the class is instantiated by the real Metal; the device answers a first set of queries; everything else is traced (see `trace`) to learn what Metal asks next. */
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
+#import <IOSurface/IOSurface.h>
 #import <IOKit/IOKitLib.h>
 #import <objc/runtime.h>
 #include <unistd.h>
@@ -145,11 +146,11 @@ static size_t pear_bytes_per_pixel(MTLPixelFormat f)
 @end
 
 @interface PearMTLTexture : NSObject <MTLTexture>
-{ @public id<MTLDevice> _device; NSString *_label; void *_mem; size_t _size; MTLTextureDescriptor *_desc; uint64_t _h; }
+{ @public id<MTLDevice> _device; NSString *_label; void *_mem; size_t _size; MTLTextureDescriptor *_desc; uint64_t _h; IOSurfaceRef _surface; NSUInteger _plane; }
 @end
 
 @implementation PearMTLTexture
-- (void)dealloc { pmw_release(_h); free(_mem); [_desc release]; [_label release]; [super dealloc]; }
+- (void)dealloc { pmw_release(_h); free(_mem); if (_surface) CFRelease(_surface); [_desc release]; [_label release]; [super dealloc]; }
 - (id<MTLDevice>)device { return _device; }
 - (NSString *)label { return _label; }
 - (void)setLabel:(NSString *)l { [_label release]; _label = [l copy]; }
@@ -175,8 +176,8 @@ static size_t pear_bytes_per_pixel(MTLPixelFormat f)
 - (id<MTLBuffer>)buffer { return nil; }
 - (NSUInteger)bufferOffset { return 0; }
 - (NSUInteger)bufferBytesPerRow { return 0; }
-- (IOSurfaceRef)iosurface { return NULL; }
-- (NSUInteger)iosurfacePlane { return 0; }
+- (IOSurfaceRef)iosurface { return _surface; }
+- (NSUInteger)iosurfacePlane { return _plane; }
 - (BOOL)isShareable { return NO; }
 - (BOOL)isSparse { return NO; }
 - (MTLPurgeableState)setPurgeableState:(MTLPurgeableState)st { return MTLPurgeableStateNonVolatile; }
@@ -555,6 +556,24 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 	NSMutableData *q = [NSMutableData dataWithBytes:&td length:sizeof td]; [q appendBytes:"" length:1];
 	NSData *a = nil;
 	if (pmw_send(PMW_TEXTURE_NEW, q.bytes, q.length, &a, nil) == 0) t->_h = pmw_u64(a, 0); else t->_mem = calloc(1, total ? total : 1);	/* no helper: host memory, as before */
+	return t;
+}
+/* a texture over an IOSurface (CAMetalLayer's drawables, CoreAnimation, CoreImage, the window server's buffers): the helper maps the surface's memory (/dev/iosurface), so what the GPU draws is in
+ * the surface, where IOSurfaceGetBaseAddress and the window server read it */
+- (id<MTLTexture>)newTextureWithDescriptor:(MTLTextureDescriptor *)d iosurface:(IOSurfaceRef)surface plane:(NSUInteger)plane
+{
+	if (!surface) return nil;
+	size_t planes = IOSurfaceGetPlaneCount(surface);
+	pmw_texture_desc td = { (uint32_t)d.textureType, (uint32_t)d.pixelFormat, (uint32_t)d.usage, (uint32_t)d.storageMode, d.width, d.height, d.depth, d.mipmapLevelCount, d.sampleCount, d.arrayLength, (uint64_t)d.resourceOptions };
+	pmw_iosurface_plane sp = { IOSurfaceGetID(surface), (uint32_t)plane,
+		planes ? (uint64_t)((char *)IOSurfaceGetBaseAddressOfPlane(surface, plane) - (char *)IOSurfaceGetBaseAddress(surface)) : 0,
+		planes ? IOSurfaceGetBytesPerRowOfPlane(surface, plane) : IOSurfaceGetBytesPerRow(surface), planes > 0, 0 };
+	NSMutableData *q = [NSMutableData dataWithBytes:&td length:sizeof td]; [q appendBytes:&sp length:sizeof sp];
+	NSData *a = nil;
+	if (pmw_send(PMW_TEXTURE_IOSURFACE, q.bytes, q.length, &a, nil) != 0) { NSLog(@"PearMetalDriver: texture over IOSurface %u: %@", sp.surface, a ? [[[NSString alloc] initWithData:a encoding:NSUTF8StringEncoding] autorelease] : @"no helper"); return nil; }
+	PearMTLTexture *t = [[PearMTLTexture alloc] init];
+	t->_device = self; t->_desc = [d copy]; t->_size = IOSurfaceGetAllocSize(surface); t->_h = pmw_u64(a, 0);
+	t->_surface = (IOSurfaceRef)CFRetain(surface); t->_plane = plane;
 	return t;
 }
 - (id<MTLLibrary>)pear_libraryWithBytes:(const void *)b length:(size_t)n error:(NSError **)e
