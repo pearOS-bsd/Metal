@@ -578,6 +578,7 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 - (id<MTLLibrary>)newDefaultLibrary { return [self newDefaultLibraryWithBundle:[NSBundle mainBundle] error:NULL]; }
 - (id<MTLComputePipelineState>)newComputePipelineStateWithFunction:(id<MTLFunction>)f error:(NSError **)e
 {
+	if (![(id)f isKindOfClass:[PearMTLFunction class]]) { if (e) *e = pmw_error(@"compute pipeline: no function", nil); return nil; }
 	uint64_t fh = ((PearMTLFunction *)f)->_h; NSData *a = nil;
 	if (pmw_send(PMW_COMPUTE_PSO_NEW, &fh, 8, &a, nil) != 0) { if (e) *e = pmw_error(@"compute pipeline", a); return nil; }
 	PearMTLComputePipelineState *p = [[PearMTLComputePipelineState alloc] init]; p->_device = self; p->_h = pmw_u64(a, 0); p->_maxThreads = pmw_u32(a, 8); p->_width = pmw_u32(a, 12); p->_staticTG = pmw_u32(a, 16);
@@ -594,6 +595,7 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 }
 - (id<MTLRenderPipelineState>)newRenderPipelineStateWithDescriptor:(MTLRenderPipelineDescriptor *)d error:(NSError **)e
 {
+	if (![(id)d.vertexFunction isKindOfClass:[PearMTLFunction class]] || (d.fragmentFunction && ![(id)d.fragmentFunction isKindOfClass:[PearMTLFunction class]])) { if (e) *e = pmw_error(@"render pipeline: no vertex function", nil); return nil; }
 	pmw_render_desc rd; memset(&rd, 0, sizeof rd);
 	rd.vertex_fn = ((PearMTLFunction *)d.vertexFunction)->_h; rd.fragment_fn = d.fragmentFunction ? ((PearMTLFunction *)d.fragmentFunction)->_h : 0;
 	rd.samples = (uint32_t)d.rasterSampleCount; rd.depth_format = (uint32_t)d.depthAttachmentPixelFormat; rd.stencil_format = (uint32_t)d.stencilAttachmentPixelFormat;
