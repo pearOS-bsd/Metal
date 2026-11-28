@@ -4,7 +4,7 @@ Metal.framework for pearOS BSD: the Metal API (`MTLDevice`, `MTLCommandQueue`, b
 
 **Layer 2 (core frameworks).** Why: Apple's `RenderBox` (SwiftUI's renderer), CoreImage, QuartzCore's glass effects and every Metal application draw through it. See the `SwiftUI` repository.
 
-Status: planned, nothing implemented yet.
+Status (2026-11-28): **works end to end on pearOS** for compute and render: a Mac program through Apple's Metal.framework, `PearMetalDriver` (this repository) and `pear-metal-helper` (pearOS-bsd/metal2vulkan, GPL, behind a socket: `docs/HELPER-PROTOCOL.md`) on Vulkan (lavapipe in the VM); `tests/compute` and `tests/render` pass.  Next: IOSurface-backed textures and drawables (CoreAnimation, WindowServer), the SPI that RenderBox asks, the image (helper build and start, the bundle in /System/Library/Extensions).
 
 ## Plan
 1. Surface first: `docs/API-SURFACE.md` lists every `MTL*` symbol and protocol selector that real RenderBox, SwiftUICore, QuartzCore and CoreImage import (read with REA from the cache, never committed), ordered by use.
