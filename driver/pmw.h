@@ -52,7 +52,19 @@ enum pmw_cmd_code {
 	PMWC_DRAW_INDEXED = 34,	/* u32 primitive, u32 indexType, u64 indexCount, u64 indexBuffer, u64 indexOffset, u64 instanceCount, i64 baseVertex, u64 baseInstance */
 	PMWC_COPY_BUF = 40,	/* u64 src, u64 srcOffset, u64 dst, u64 dstOffset, u64 size */
 	PMWC_FILL_BUF = 41,	/* u64 buf, u64 offset, u64 length, u32 value byte */
+	PMWC_COPY_BUF_TEX = 42,	/* u64 buf, u64 offset, u64 bytesPerRow, u64 bytesPerImage, u64 size w h d, u64 tex, u64 slice, u64 level, u64 origin x y z */
+	PMWC_COPY_TEX_BUF = 43,	/* u64 tex, u64 slice, u64 level, u64 origin x y z, u64 size w h d, u64 buf, u64 offset, u64 bytesPerRow, u64 bytesPerImage */
+	PMWC_SET_CULL = 35,	/* u32 MTLCullMode, u32 MTLWinding */
 };
+
+/* PMWC_RENDER_BEGIN: the attachments of the pass */
+typedef struct { uint64_t tex, level, slice; uint32_t load, store; double clear[4]; } pmw_color_att;
+typedef struct { pmw_color_att color[8]; uint64_t depth_tex; uint32_t depth_load, depth_store; double depth_clear; uint64_t stencil_tex; uint32_t stencil_load, stencil_store, stencil_clear, pad; } pmw_render_pass;
+/* PMW_RENDER_PSO_NEW */
+typedef struct { uint32_t format, blending, src_rgb, dst_rgb, rgb_op, src_a, dst_a, a_op, write_mask; } pmw_blend;
+typedef struct { uint64_t vertex_fn, fragment_fn; uint32_t samples, depth_format, stencil_format, pad; pmw_blend color[8]; } pmw_render_desc;
+/* PMW_SAMPLER_NEW */
+typedef struct { uint32_t min, mag, mip, s, t, r, border, normalized, compare, max_aniso; float lod_min, lod_max; } pmw_sampler_desc;
 
 typedef struct { uint64_t x, y, z, w, h, d; } pmw_region;
 typedef struct { uint32_t type, format, usage, storage; uint64_t width, height, depth, mipmaps, samples, arrayLength, options; } pmw_texture_desc;

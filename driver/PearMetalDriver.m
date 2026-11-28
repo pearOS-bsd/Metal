@@ -145,11 +145,11 @@ static size_t pear_bytes_per_pixel(MTLPixelFormat f)
 @end
 
 @interface PearMTLTexture : NSObject <MTLTexture>
-{ @public id<MTLDevice> _device; NSString *_label; void *_mem; size_t _size; MTLTextureDescriptor *_desc; }
+{ @public id<MTLDevice> _device; NSString *_label; void *_mem; size_t _size; MTLTextureDescriptor *_desc; uint64_t _h; }
 @end
 
 @implementation PearMTLTexture
-- (void)dealloc { free(_mem); [_desc release]; [_label release]; [super dealloc]; }
+- (void)dealloc { pmw_release(_h); free(_mem); [_desc release]; [_label release]; [super dealloc]; }
 - (id<MTLDevice>)device { return _device; }
 - (NSString *)label { return _label; }
 - (void)setLabel:(NSString *)l { [_label release]; _label = [l copy]; }
@@ -184,14 +184,29 @@ static size_t pear_bytes_per_pixel(MTLPixelFormat f)
 - (NSUInteger)heapOffset { return 0; }
 - (void)makeAliasable {}
 - (BOOL)isAliasable { return NO; }
+- (void)pear_io:(uint32_t)op bytes:(void *)p bytesPerRow:(NSUInteger)bpr bytesPerImage:(NSUInteger)bpi region:(MTLRegion)r level:(NSUInteger)lvl slice:(NSUInteger)sl
+{
+	NSUInteger d = r.size.depth ? r.size.depth : 1, n = bpi ? bpi * d : bpr * r.size.height;
+	NSMutableData *q = [NSMutableData dataWithBytes:&_h length:8];
+	uint64_t reg[6] = { r.origin.x, r.origin.y, r.origin.z, r.size.width, r.size.height, d }; uint32_t ls[2] = { (uint32_t)lvl, (uint32_t)sl }; uint64_t rows[2] = { bpr, bpi };
+	[q appendBytes:reg length:48]; [q appendBytes:ls length:8]; [q appendBytes:rows length:16];
+	if (op == PMW_TEXTURE_REPLACE) { [q appendBytes:p length:n]; pmw_send(op, q.bytes, q.length, NULL, nil); return; }
+	NSData *a = nil; if (pmw_send(op, q.bytes, q.length, &a, nil) == 0) memcpy(p, a.bytes, MIN(n, a.length));
+}
+- (void)getBytes:(void *)dst bytesPerRow:(NSUInteger)bpr bytesPerImage:(NSUInteger)bpi fromRegion:(MTLRegion)r mipmapLevel:(NSUInteger)lvl slice:(NSUInteger)sl
+{ if (_h) [self pear_io:PMW_TEXTURE_GET bytes:dst bytesPerRow:bpr bytesPerImage:bpi region:r level:lvl slice:sl]; }
+- (void)replaceRegion:(MTLRegion)r mipmapLevel:(NSUInteger)lvl slice:(NSUInteger)sl withBytes:(const void *)src bytesPerRow:(NSUInteger)bpr bytesPerImage:(NSUInteger)bpi
+{ if (_h) [self pear_io:PMW_TEXTURE_REPLACE bytes:(void *)src bytesPerRow:bpr bytesPerImage:bpi region:r level:lvl slice:sl]; }
 - (void)getBytes:(void *)dst bytesPerRow:(NSUInteger)bpr fromRegion:(MTLRegion)r mipmapLevel:(NSUInteger)lvl
 {
+	if (_h) { [self pear_io:PMW_TEXTURE_GET bytes:dst bytesPerRow:bpr bytesPerImage:0 region:r level:lvl slice:0]; return; }
 	size_t bpp = pear_bytes_per_pixel(_desc.pixelFormat), rowsize = _desc.width * bpp;
 	for (NSUInteger y = 0; y < r.size.height && lvl == 0; y++)
 		memcpy((char *)dst + y * bpr, (char *)_mem + (r.origin.y + y) * rowsize + r.origin.x * bpp, r.size.width * bpp);
 }
 - (void)replaceRegion:(MTLRegion)r mipmapLevel:(NSUInteger)lvl withBytes:(const void *)src bytesPerRow:(NSUInteger)bpr
 {
+	if (_h) { [self pear_io:PMW_TEXTURE_REPLACE bytes:(void *)src bytesPerRow:bpr bytesPerImage:0 region:r level:lvl slice:0]; return; }
 	size_t bpp = pear_bytes_per_pixel(_desc.pixelFormat), rowsize = _desc.width * bpp;
 	for (NSUInteger y = 0; y < r.size.height && lvl == 0; y++)
 		memcpy((char *)_mem + (r.origin.y + y) * rowsize + r.origin.x * bpp, (const char *)src + y * bpr, r.size.width * bpp);
@@ -306,10 +321,106 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 - (void)setLabel:(NSString *)l { [_label release]; _label = [l copy]; }
 - (void)copyFromBuffer:(id<MTLBuffer>)s sourceOffset:(NSUInteger)so toBuffer:(id<MTLBuffer>)d destinationOffset:(NSUInteger)dof size:(NSUInteger)n { [_cb pear_keep:s]; [_cb pear_keep:d]; uint64_t a[5] = { ((PearMTLBuffer *)s)->_h, so, ((PearMTLBuffer *)d)->_h, dof, n }; pmw_rec(_cb->_list, PMWC_COPY_BUF, a, sizeof a); }
 - (void)fillBuffer:(id<MTLBuffer>)b range:(NSRange)r value:(uint8_t)v { [_cb pear_keep:b]; struct { uint64_t h, off, n; uint32_t v; } __attribute__((packed)) a = { ((PearMTLBuffer *)b)->_h, r.location, r.length, v }; pmw_rec(_cb->_list, PMWC_FILL_BUF, &a, sizeof a); }
+- (void)copyFromBuffer:(id<MTLBuffer>)b sourceOffset:(NSUInteger)off sourceBytesPerRow:(NSUInteger)bpr sourceBytesPerImage:(NSUInteger)bpi sourceSize:(MTLSize)sz toTexture:(id<MTLTexture>)t destinationSlice:(NSUInteger)sl destinationLevel:(NSUInteger)lv destinationOrigin:(MTLOrigin)o
+{ [_cb pear_keep:b]; [_cb pear_keep:t]; uint64_t a[14] = { ((PearMTLBuffer *)b)->_h, off, bpr, bpi, sz.width, sz.height, sz.depth, ((PearMTLTexture *)t)->_h, sl, lv, o.x, o.y, o.z }; pmw_rec(_cb->_list, PMWC_COPY_BUF_TEX, a, 13 * 8); }
+- (void)copyFromTexture:(id<MTLTexture>)t sourceSlice:(NSUInteger)sl sourceLevel:(NSUInteger)lv sourceOrigin:(MTLOrigin)o sourceSize:(MTLSize)sz toBuffer:(id<MTLBuffer>)b destinationOffset:(NSUInteger)off destinationBytesPerRow:(NSUInteger)bpr destinationBytesPerImage:(NSUInteger)bpi
+{ [_cb pear_keep:b]; [_cb pear_keep:t]; uint64_t a[13] = { ((PearMTLTexture *)t)->_h, sl, lv, o.x, o.y, o.z, sz.width, sz.height, sz.depth, ((PearMTLBuffer *)b)->_h, off, bpr, bpi }; pmw_rec(_cb->_list, PMWC_COPY_TEX_BUF, a, sizeof a); }
 - (void)synchronizeResource:(id<MTLResource>)r {}
 - (void)synchronizeTexture:(id<MTLTexture>)t slice:(NSUInteger)s level:(NSUInteger)l {}
 - (void)updateFence:(id<MTLFence>)f {}
 - (void)waitForFence:(id<MTLFence>)f {}
+- (void)pushDebugGroup:(NSString *)s {}
+- (void)popDebugGroup {}
+- (void)insertDebugSignpost:(NSString *)s {}
+- (void)endEncoding { pmw_rec(_cb->_list, PMWC_END, NULL, 0); }
+@end
+
+
+@interface PearMTLSamplerState : NSObject <MTLSamplerState>
+{ @public id<MTLDevice> _device; NSString *_label; uint64_t _h; }
+@end
+@implementation PearMTLSamplerState
+- (void)dealloc { pmw_release(_h); [_label release]; [super dealloc]; }
+- (id<MTLDevice>)device { return _device; }
+- (NSString *)label { return _label; }
+- (MTLResourceID)gpuResourceID { MTLResourceID r; r._impl = _h; return r; }
+@end
+
+@interface PearMTLRenderPipelineState : NSObject <MTLRenderPipelineState>
+{ @public id<MTLDevice> _device; NSString *_label; uint64_t _h; }
+@end
+@implementation PearMTLRenderPipelineState
+- (void)dealloc { pmw_release(_h); [_label release]; [super dealloc]; }
+- (id<MTLDevice>)device { return _device; }
+- (NSString *)label { return _label; }
+- (NSUInteger)maxTotalThreadsPerThreadgroup { return 1024; }
+- (BOOL)threadgroupSizeMatchesTileSize { return NO; }
+- (NSUInteger)imageblockSampleLength { return 0; }
+- (BOOL)supportIndirectCommandBuffers { return NO; }
+- (MTLResourceID)gpuResourceID { MTLResourceID r; r._impl = _h; return r; }
+@end
+
+@interface PearMTLDepthStencilState : NSObject <MTLDepthStencilState>
+{ @public id<MTLDevice> _device; NSString *_label; }
+@end
+@implementation PearMTLDepthStencilState
+- (void)dealloc { [_label release]; [super dealloc]; }
+- (id<MTLDevice>)device { return _device; }
+- (NSString *)label { return _label; }
+- (MTLResourceID)gpuResourceID { MTLResourceID r; r._impl = 0; return r; }
+@end
+
+@interface PearMTLRenderCommandEncoder : NSObject <MTLRenderCommandEncoder>
+{ @public PearMTLCommandBuffer *_cb; NSString *_label; MTLCullMode _cull; MTLWinding _wind; }
+@end
+@implementation PearMTLRenderCommandEncoder
+- (void)dealloc { [_label release]; [super dealloc]; }
+- (id<MTLDevice>)device { return _cb.device; }
+- (NSString *)label { return _label; }
+- (void)setLabel:(NSString *)l { [_label release]; _label = [l copy]; }
+- (void)setRenderPipelineState:(id<MTLRenderPipelineState>)p { [_cb pear_keep:p]; uint64_t h = ((PearMTLRenderPipelineState *)p)->_h; pmw_rec(_cb->_list, PMWC_SET_RENDER_PSO, &h, 8); }
+- (void)pear_buffer:(id<MTLBuffer>)b offset:(NSUInteger)off index:(NSUInteger)i stage:(uint32_t)st { [_cb pear_keep:b]; struct { uint32_t st, idx; uint64_t h, off; } a = { st, (uint32_t)i, b ? ((PearMTLBuffer *)b)->_h : 0, off }; pmw_rec(_cb->_list, PMWC_SET_BUFFER, &a, sizeof a); }
+- (void)pear_bytes:(const void *)p length:(NSUInteger)n index:(NSUInteger)i stage:(uint32_t)st { NSMutableData *a = [NSMutableData dataWithLength:8]; uint32_t *w = a.mutableBytes; w[0] = st; w[1] = (uint32_t)i; [a appendBytes:p length:n]; pmw_rec(_cb->_list, PMWC_SET_BYTES, a.bytes, a.length); }
+- (void)pear_texture:(id<MTLTexture>)t index:(NSUInteger)i stage:(uint32_t)st { [_cb pear_keep:t]; struct { uint32_t st, idx; uint64_t h; } a = { st, (uint32_t)i, t ? ((PearMTLTexture *)t)->_h : 0 }; pmw_rec(_cb->_list, PMWC_SET_TEXTURE, &a, sizeof a); }
+- (void)pear_sampler:(id<MTLSamplerState>)s index:(NSUInteger)i stage:(uint32_t)st { [_cb pear_keep:s]; struct { uint32_t st, idx; uint64_t h; } a = { st, (uint32_t)i, s ? ((PearMTLSamplerState *)s)->_h : 0 }; pmw_rec(_cb->_list, PMWC_SET_SAMPLER, &a, sizeof a); }
+- (void)setVertexBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i { [self pear_buffer:b offset:o index:i stage:1]; }
+- (void)setFragmentBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i { [self pear_buffer:b offset:o index:i stage:2]; }
+- (void)setVertexBuffers:(const id<MTLBuffer> *)bs offsets:(const NSUInteger *)os withRange:(NSRange)r { for (NSUInteger k = 0; k < r.length; k++) [self pear_buffer:bs[k] offset:os[k] index:r.location + k stage:1]; }
+- (void)setFragmentBuffers:(const id<MTLBuffer> *)bs offsets:(const NSUInteger *)os withRange:(NSRange)r { for (NSUInteger k = 0; k < r.length; k++) [self pear_buffer:bs[k] offset:os[k] index:r.location + k stage:2]; }
+- (void)setVertexBytes:(const void *)p length:(NSUInteger)n atIndex:(NSUInteger)i { [self pear_bytes:p length:n index:i stage:1]; }
+- (void)setFragmentBytes:(const void *)p length:(NSUInteger)n atIndex:(NSUInteger)i { [self pear_bytes:p length:n index:i stage:2]; }
+- (void)setVertexTexture:(id<MTLTexture>)t atIndex:(NSUInteger)i { [self pear_texture:t index:i stage:1]; }
+- (void)setFragmentTexture:(id<MTLTexture>)t atIndex:(NSUInteger)i { [self pear_texture:t index:i stage:2]; }
+- (void)setFragmentTextures:(const id<MTLTexture> *)ts withRange:(NSRange)r { for (NSUInteger k = 0; k < r.length; k++) [self pear_texture:ts[k] index:r.location + k stage:2]; }
+- (void)setVertexSamplerState:(id<MTLSamplerState>)s atIndex:(NSUInteger)i { [self pear_sampler:s index:i stage:1]; }
+- (void)setFragmentSamplerState:(id<MTLSamplerState>)s atIndex:(NSUInteger)i { [self pear_sampler:s index:i stage:2]; }
+- (void)setFragmentSamplerStates:(const id<MTLSamplerState> *)ss withRange:(NSRange)r { for (NSUInteger k = 0; k < r.length; k++) [self pear_sampler:ss[k] index:r.location + k stage:2]; }
+- (void)setViewport:(MTLViewport)v { double a[6] = { v.originX, v.originY, v.width, v.height, v.znear, v.zfar }; pmw_rec(_cb->_list, PMWC_SET_VIEWPORT, a, sizeof a); }
+- (void)setScissorRect:(MTLScissorRect)r { uint64_t a[4] = { r.x, r.y, r.width, r.height }; pmw_rec(_cb->_list, PMWC_SET_SCISSOR, a, sizeof a); }
+- (void)setCullMode:(MTLCullMode)m { _cull = m; uint32_t a[2] = { (uint32_t)_cull, (uint32_t)_wind }; pmw_rec(_cb->_list, PMWC_SET_CULL, a, 8); }
+- (void)setFrontFacingWinding:(MTLWinding)w { _wind = w; uint32_t a[2] = { (uint32_t)_cull, (uint32_t)_wind }; pmw_rec(_cb->_list, PMWC_SET_CULL, a, 8); }
+- (void)setTriangleFillMode:(MTLTriangleFillMode)m {}
+- (void)setDepthStencilState:(id<MTLDepthStencilState>)s {}
+- (void)setStencilReferenceValue:(uint32_t)v {}
+- (void)setBlendColorRed:(float)r green:(float)g blue:(float)b alpha:(float)a {}
+- (void)setDepthBias:(float)b slopeScale:(float)s clamp:(float)c {}
+- (void)setDepthClipMode:(MTLDepthClipMode)m {}
+- (void)setVisibilityResultMode:(MTLVisibilityResultMode)m offset:(NSUInteger)o {}
+- (void)drawPrimitives:(MTLPrimitiveType)p vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n instanceCount:(NSUInteger)ic baseInstance:(NSUInteger)bi { struct { uint32_t p, pad; uint64_t s, n, ic, bi; } a = { (uint32_t)p, 0, s, n, ic, bi }; pmw_rec(_cb->_list, PMWC_DRAW, &a, sizeof a); }
+- (void)drawPrimitives:(MTLPrimitiveType)p vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n instanceCount:(NSUInteger)ic { [self drawPrimitives:p vertexStart:s vertexCount:n instanceCount:ic baseInstance:0]; }
+- (void)drawPrimitives:(MTLPrimitiveType)p vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n { [self drawPrimitives:p vertexStart:s vertexCount:n instanceCount:1 baseInstance:0]; }
+- (void)drawIndexedPrimitives:(MTLPrimitiveType)p indexCount:(NSUInteger)n indexType:(MTLIndexType)t indexBuffer:(id<MTLBuffer>)ib indexBufferOffset:(NSUInteger)o instanceCount:(NSUInteger)ic baseVertex:(NSInteger)bv baseInstance:(NSUInteger)bi
+{ [_cb pear_keep:ib]; struct { uint32_t p, t; uint64_t n, ib, o, ic; int64_t bv; uint64_t bi; } a = { (uint32_t)p, (uint32_t)t, n, ((PearMTLBuffer *)ib)->_h, o, ic, bv, bi }; pmw_rec(_cb->_list, PMWC_DRAW_INDEXED, &a, sizeof a); }
+- (void)drawIndexedPrimitives:(MTLPrimitiveType)p indexCount:(NSUInteger)n indexType:(MTLIndexType)t indexBuffer:(id<MTLBuffer>)ib indexBufferOffset:(NSUInteger)o instanceCount:(NSUInteger)ic { [self drawIndexedPrimitives:p indexCount:n indexType:t indexBuffer:ib indexBufferOffset:o instanceCount:ic baseVertex:0 baseInstance:0]; }
+- (void)drawIndexedPrimitives:(MTLPrimitiveType)p indexCount:(NSUInteger)n indexType:(MTLIndexType)t indexBuffer:(id<MTLBuffer>)ib indexBufferOffset:(NSUInteger)o { [self drawIndexedPrimitives:p indexCount:n indexType:t indexBuffer:ib indexBufferOffset:o instanceCount:1 baseVertex:0 baseInstance:0]; }
+- (void)useResource:(id<MTLResource>)r usage:(MTLResourceUsage)u {}
+- (void)useResource:(id<MTLResource>)r usage:(MTLResourceUsage)u stages:(MTLRenderStages)s {}
+- (void)useResources:(const id<MTLResource> *)r count:(NSUInteger)n usage:(MTLResourceUsage)u {}
+- (void)useHeap:(id<MTLHeap>)h {}
+- (void)memoryBarrierWithScope:(MTLBarrierScope)s afterStages:(MTLRenderStages)a beforeStages:(MTLRenderStages)b {}
+- (void)updateFence:(id<MTLFence>)f afterStages:(MTLRenderStages)s {}
+- (void)waitForFence:(id<MTLFence>)f beforeStages:(MTLRenderStages)s {}
+- (void)textureBarrier {}
 - (void)pushDebugGroup:(NSString *)s {}
 - (void)popDebugGroup {}
 - (void)insertDebugSignpost:(NSString *)s {}
@@ -341,6 +452,21 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 - (id<MTLComputeCommandEncoder>)computeCommandEncoder { pmw_rec(_list, PMWC_COMPUTE_BEGIN, NULL, 0); PearMTLComputeCommandEncoder *e = [[[PearMTLComputeCommandEncoder alloc] init] autorelease]; e->_cb = self; return e; }
 - (id<MTLComputeCommandEncoder>)computeCommandEncoderWithDispatchType:(MTLDispatchType)t { return [self computeCommandEncoder]; }
 - (id<MTLComputeCommandEncoder>)computeCommandEncoderWithDescriptor:(MTLComputePassDescriptor *)d { return [self computeCommandEncoder]; }
+- (id<MTLRenderCommandEncoder>)renderCommandEncoderWithDescriptor:(MTLRenderPassDescriptor *)d
+{
+	pmw_render_pass p; memset(&p, 0, sizeof p);
+	for (int i = 0; i < 8; i++) {
+		MTLRenderPassColorAttachmentDescriptor *c = d.colorAttachments[i];
+		if (!c.texture) continue;
+		[self pear_keep:c.texture];
+		p.color[i].tex = ((PearMTLTexture *)c.texture)->_h; p.color[i].level = c.level; p.color[i].slice = c.slice; p.color[i].load = (uint32_t)c.loadAction; p.color[i].store = (uint32_t)c.storeAction;
+		p.color[i].clear[0] = c.clearColor.red; p.color[i].clear[1] = c.clearColor.green; p.color[i].clear[2] = c.clearColor.blue; p.color[i].clear[3] = c.clearColor.alpha;
+	}
+	if (d.depthAttachment.texture) { [self pear_keep:d.depthAttachment.texture]; p.depth_tex = ((PearMTLTexture *)d.depthAttachment.texture)->_h; p.depth_load = (uint32_t)d.depthAttachment.loadAction; p.depth_store = (uint32_t)d.depthAttachment.storeAction; p.depth_clear = d.depthAttachment.clearDepth; }
+	if (d.stencilAttachment.texture) { [self pear_keep:d.stencilAttachment.texture]; p.stencil_tex = ((PearMTLTexture *)d.stencilAttachment.texture)->_h; p.stencil_load = (uint32_t)d.stencilAttachment.loadAction; p.stencil_store = (uint32_t)d.stencilAttachment.storeAction; p.stencil_clear = d.stencilAttachment.clearStencil; }
+	pmw_rec(_list, PMWC_RENDER_BEGIN, &p, sizeof p);
+	PearMTLRenderCommandEncoder *e = [[[PearMTLRenderCommandEncoder alloc] init] autorelease]; e->_cb = self; e->_wind = MTLWindingClockwise; return e;
+}
 - (id<MTLBlitCommandEncoder>)blitCommandEncoder { pmw_rec(_list, PMWC_BLIT_BEGIN, NULL, 0); PearMTLBlitCommandEncoder *e = [[[PearMTLBlitCommandEncoder alloc] init] autorelease]; e->_cb = self; return e; }
 - (id<MTLBlitCommandEncoder>)blitCommandEncoderWithDescriptor:(MTLBlitPassDescriptor *)d { return [self blitCommandEncoder]; }
 - (void)addScheduledHandler:(MTLCommandBufferHandler)h { [_scheduled addObject:[[h copy] autorelease]]; }
@@ -424,8 +550,11 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 	NSUInteger w = d.width, h = d.height, dp = d.depth, layers = d.arrayLength ? d.arrayLength : 1;
 	for (NSUInteger l = 0; l < (d.mipmapLevelCount ? d.mipmapLevelCount : 1); l++) { total += (w ? w : 1) * (h ? h : 1) * (dp ? dp : 1) * bpp; w >>= 1; h >>= 1; dp >>= 1; }
 	total *= (d.textureType == MTLTextureTypeCube ? 6 : layers);
-	t->_device = self; t->_desc = [d copy]; t->_size = total; t->_mem = calloc(1, total ? total : 1);
-	trace("newTextureWithDescriptor", NULL);
+	t->_device = self; t->_desc = [d copy]; t->_size = total;
+	pmw_texture_desc td = { (uint32_t)d.textureType, (uint32_t)d.pixelFormat, (uint32_t)d.usage, (uint32_t)d.storageMode, d.width, d.height, d.depth, d.mipmapLevelCount, d.sampleCount, d.arrayLength, (uint64_t)d.resourceOptions };
+	NSMutableData *q = [NSMutableData dataWithBytes:&td length:sizeof td]; [q appendBytes:"" length:1];
+	NSData *a = nil;
+	if (pmw_send(PMW_TEXTURE_NEW, q.bytes, q.length, &a, nil) == 0) t->_h = pmw_u64(a, 0); else t->_mem = calloc(1, total ? total : 1);	/* no helper: host memory, as before */
 	return t;
 }
 - (id<MTLLibrary>)pear_libraryWithBytes:(const void *)b length:(size_t)n error:(NSError **)e
@@ -457,6 +586,27 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 - (id<MTLComputePipelineState>)newComputePipelineStateWithFunction:(id<MTLFunction>)f options:(MTLPipelineOption)o reflection:(MTLAutoreleasedComputePipelineReflection *)r error:(NSError **)e { if (r) *r = nil; return [self newComputePipelineStateWithFunction:f error:e]; }
 - (id<MTLComputePipelineState>)newComputePipelineStateWithDescriptor:(MTLComputePipelineDescriptor *)d options:(MTLPipelineOption)o reflection:(MTLAutoreleasedComputePipelineReflection *)r error:(NSError **)e { if (r) *r = nil; return [self newComputePipelineStateWithFunction:d.computeFunction error:e]; }
 - (void)newComputePipelineStateWithFunction:(id<MTLFunction>)f completionHandler:(MTLNewComputePipelineStateCompletionHandler)h { NSError *e = nil; id p = [self newComputePipelineStateWithFunction:f error:&e]; h(p, e); [p release]; }
+- (id<MTLSamplerState>)newSamplerStateWithDescriptor:(MTLSamplerDescriptor *)d
+{
+	pmw_sampler_desc sd = { (uint32_t)d.minFilter, (uint32_t)d.magFilter, (uint32_t)d.mipFilter, (uint32_t)d.sAddressMode, (uint32_t)d.tAddressMode, (uint32_t)d.rAddressMode, (uint32_t)d.borderColor, d.normalizedCoordinates, (uint32_t)d.compareFunction, (uint32_t)d.maxAnisotropy, d.lodMinClamp, d.lodMaxClamp };
+	NSData *a = nil; if (pmw_send(PMW_SAMPLER_NEW, &sd, sizeof sd, &a, nil) != 0) return nil;
+	PearMTLSamplerState *s = [[PearMTLSamplerState alloc] init]; s->_device = self; s->_h = pmw_u64(a, 0); return s;
+}
+- (id<MTLRenderPipelineState>)newRenderPipelineStateWithDescriptor:(MTLRenderPipelineDescriptor *)d error:(NSError **)e
+{
+	pmw_render_desc rd; memset(&rd, 0, sizeof rd);
+	rd.vertex_fn = ((PearMTLFunction *)d.vertexFunction)->_h; rd.fragment_fn = d.fragmentFunction ? ((PearMTLFunction *)d.fragmentFunction)->_h : 0;
+	rd.samples = (uint32_t)d.rasterSampleCount; rd.depth_format = (uint32_t)d.depthAttachmentPixelFormat; rd.stencil_format = (uint32_t)d.stencilAttachmentPixelFormat;
+	for (int i = 0; i < 8; i++) {
+		MTLRenderPipelineColorAttachmentDescriptor *c = d.colorAttachments[i];
+		rd.color[i] = (pmw_blend){ (uint32_t)c.pixelFormat, c.blendingEnabled, (uint32_t)c.sourceRGBBlendFactor, (uint32_t)c.destinationRGBBlendFactor, (uint32_t)c.rgbBlendOperation, (uint32_t)c.sourceAlphaBlendFactor, (uint32_t)c.destinationAlphaBlendFactor, (uint32_t)c.alphaBlendOperation, (uint32_t)c.writeMask };
+	}
+	NSData *a = nil; if (pmw_send(PMW_RENDER_PSO_NEW, &rd, sizeof rd, &a, nil) != 0) { if (e) *e = pmw_error(@"render pipeline", a); return nil; }
+	PearMTLRenderPipelineState *p = [[PearMTLRenderPipelineState alloc] init]; p->_device = self; p->_h = pmw_u64(a, 0); return p;
+}
+- (id<MTLRenderPipelineState>)newRenderPipelineStateWithDescriptor:(MTLRenderPipelineDescriptor *)d options:(MTLPipelineOption)o reflection:(MTLAutoreleasedRenderPipelineReflection *)r error:(NSError **)e { if (r) *r = nil; return [self newRenderPipelineStateWithDescriptor:d error:e]; }
+- (void)newRenderPipelineStateWithDescriptor:(MTLRenderPipelineDescriptor *)d completionHandler:(MTLNewRenderPipelineStateCompletionHandler)h { NSError *e = nil; id p = [self newRenderPipelineStateWithDescriptor:d error:&e]; h(p, e); [p release]; }
+- (id<MTLDepthStencilState>)newDepthStencilStateWithDescriptor:(MTLDepthStencilDescriptor *)d { trace("depth stencil state (not applied yet)", NULL); PearMTLDepthStencilState *s = [[PearMTLDepthStencilState alloc] init]; s->_device = self; return s; }
 - (NSUInteger)maxThreadgroupMemoryLength { return 32768; }
 - (MTLSize)maxThreadsPerThreadgroup { return MTLSizeMake(1024, 1024, 64); }
 - (BOOL)supportsFamily:(MTLGPUFamily)f { return f == MTLGPUFamilyCommon1 || f == MTLGPUFamilyCommon2 || f == MTLGPUFamilyMac2 || f == MTLGPUFamilyMetal3; }
