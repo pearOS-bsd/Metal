@@ -31,6 +31,7 @@ static void draw_frame(void)
 		[enc endEncoding];
 		[cb presentDrawable:d];
 		[cb commit];
+		if (getenv("ML_IDS") && frames >= 100 && frames < 112) printf("metallayer: frame %d IOSurface %u\n", frames, d.texture.iosurface ? IOSurfaceGetID(d.texture.iosurface) : 0);
 		if (frames % 30 == 0) { IOSurfaceRef s = d.texture.iosurface; printf("metallayer: frame %d: drawable %lux%lu, format %lu, IOSurface %u\n", frames, (unsigned long)d.texture.width, (unsigned long)d.texture.height, (unsigned long)d.texture.pixelFormat, s ? IOSurfaceGetID(s) : 0); }
 		if (frames == 60) {
 			[cb waitUntilCompleted];

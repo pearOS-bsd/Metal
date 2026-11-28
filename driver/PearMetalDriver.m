@@ -428,6 +428,13 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 - (void)endEncoding { pmw_rec(_cb->_list, PMWC_END, NULL, 0); }
 @end
 
+static dispatch_queue_t pear_completion_queue(void)
+{
+	static dispatch_queue_t q; static dispatch_once_t once;
+	dispatch_once(&once, ^{ q = dispatch_queue_create("com.pearos.metal.completion", DISPATCH_QUEUE_SERIAL); });
+	return q;
+}
+
 @implementation PearMTLCommandBuffer
 - (instancetype)initWithQueue:(id<MTLCommandQueue>)q
 {
@@ -493,7 +500,10 @@ static void pmw_rec(NSMutableData *l, uint16_t code, const void *args, size_t n)
 	pmw_send(PMW_WAIT, &_sid, 8, NULL, ^(uint32_t st, NSData *ans) {
 		uint32_t code = st ? 5 : pmw_u32(ans, 0);
 		NSError *err = code == 4 ? nil : [NSError errorWithDomain:@"MTLCommandBufferErrorDomain" code:1 userInfo:@{ NSLocalizedDescriptionKey: ans.length > 4 ? [[[NSString alloc] initWithBytes:(const char *)ans.bytes + 4 length:ans.length - 4 encoding:NSUTF8StringEncoding] autorelease] : @"the helper failed" }];
-		[self pear_finish:(MTLCommandBufferStatus)code error:err];
+		/* the handlers run on a queue of their own, not on the reader thread of the socket: a completed handler that presents a drawable or makes
+		 * a resource waits for answers that only the reader thread can read (on the Mac they run on Metal's completion queue too) */
+		[err retain];
+		dispatch_async(pear_completion_queue(), ^{ [self pear_finish:(MTLCommandBufferStatus)code error:err]; [err release]; });
 	});
 }
 - (void)waitUntilScheduled {}
